@@ -114,6 +114,74 @@ python -m berelemzo_verify.benchmark --result tiszta_eredmeny.json --config konf
 
 Minden V01–V18 ellenőrzéshez van legalább egy mutáció, és a tesztek ezt kikényszerítik. A tiszta eredményen nem keletkezhet FAIL vagy WARN.
 
+## Megfelelőségi audit-motor: `berelemzo_audit`
+
+Determinisztikus, MI-mentes motor, amely a beérkezett adatokon a bértranszparencia-auditkézikönyv **24 kontrollját** (GOV, JOB, PAY, OBJ, STA, TRN, REP, DPR, CHG) értékeli. A kontrollcélok és az auditpróbák szó szerint a kézikönyv katalógusából származnak. A motor a két meglévő rekordellenőrzőt (munkakörértékelés és aggregált bérrés-elemzés) is tartalmazza, és az aggregált mutatókból ilyen rekordokat épít.
+
+```bash
+python -m berelemzo_audit --data adat.csv --config konfig.json --audit-date 2026-10-29     --declarations nyilatkozat.json --result eredmeny.json --input-reality REAL --out audit.json
+```
+
+Az adatfájlt **helyben** kell futtatni. A kimenet csak aggregátum; ha a kimeneti kapu `BLOCKED`, a fájl nem íródik ki (kilépési kód 3). Kilépési kódok: 0 (nincs NOT_MET), 1 (van NOT_MET), 2 (bemeneti hiba), 3 (kapu blokkolt).
+
+### Bemenetek
+
+| Bemenet | Tartalom |
+|---|---|
+| `--data` | CSV, fehérlistás oszlopok: `job_id`, `sex`, `fte`, `alapber`, `rendszeres_potlek`, `valtozo_bonusz`, `termeszetbeni`, `tulora`, `kifizetett_osszes_kezi`, `szerzodes_tipus`, `belepes_eve`, `munkahely`, `muszakrend`, `iskolai_vegzettseg`, `teljesitmenysav`, `eletkor_sav`. A fehérlistán kívüli oszlop **értékét a beolvasó nem olvassa ki**, csak a nevét jelzi (DPR-01). Az `fte` kötelező, a normalizálás pontosan egyszer, a motorban történik. |
+| `--config` | A Bérelemző konfigurációja (súlyok, szintek, sávszélesség). |
+| `--declarations` | A szervezet nyilatkozatai (JSON, minden kulcs opcionális): `organisation`, `governance`, `job_catalogue`, `job_evaluation`, `pay_elements`, `reconciliation`, `normalization`, `pay_bands`, `pay_policy`, `scoring_log`, `justifications`, `deviation_register`, `info_requests`, `transparency`, `reporting`, `joint_assessment`, `data_protection`, `change_management`. A `justifications[].row` az adatsor sorszáma a fájlban (a fejléc után, 1-től). |
+| `--result` | A Bérelemző eredményfájlja: a motor kereszt-ellenőrzi egy független újraszámítással, és lefuttatja rajta az L1 ellenőrzőt. |
+
+### Státuszok és bizonyítékszint
+
+| Státusz | Jelentés | Bizonyíték |
+|---|---|---|
+| `MET` | az adatból vagy az eredményből számolva teljesül | `COMPUTED_MEASURED` |
+| `NOT_MET` | számolva vagy a nyilatkozat tartalma szerint nem teljesül | |
+| `DECLARED_ONLY` | formailag teljesül, de csak nyilatkozat alapján; a motor nem tudja igazolni | `DECLARED` |
+| `NOT_ASSESSABLE` | a bemenet hiányzik; a `needs` felsorolja, mi kell | `UNVERIFIABLE` |
+| `MANUAL_REVIEW` | emberi mérlegelés kell; a számolt szűrés csatolva | |
+
+A motor **nem engedi**, hogy egy kontroll a bizonyítékszintjénél erősebb státuszt kapjon (`CeilingError`). A státusz a katalógus kontrollcéljához képesti állapot, **nem jogi minősítés**.
+
+### Mit számol a motor kontrollonként
+
+| Kontroll | Számolt rész | Nyilatkozatból |
+|---|---|---|
+| GOV-01, GOV-02 | | felelős, RACI, jóváhagyás kora; jogi és képviseleti felülvizsgálat |
+| JOB-01 | az adat munkakörei és a pontozott munkakörök egyezése | profilok verziója és hivatkozása |
+| JOB-02 | főfaktor-lefedettség, 0 szintek indoklása, nő- és férfidomináns munkakörök szintátlagai | indoklások |
+| JOB-03 | kettős pontozás aránya, értékelői egyezés, konszenzus az értékelői tartományban, 10%-os újrapontozási minta | a pontozási napló |
+| JOB-04 | | FEOR/ESCO csak referencia |
+| PAY-01 | deklarált elemek az adatban, létszám- és összegegyeztetés a deklarált bérszámfejtéssel | a bérszámfejtési összegek |
+| PAY-02 | érvényes FTE, normalizált összeg újraszámítása, kétszeres normalizálás mintázata | dokumentáció |
+| PAY-03 | bérsávtábla belső épsége | a kritérium hozzáférhetősége |
+| OBJ-01 | sávon kívüli (és ha megadott, peer-eltérő) díjazás, indokrekord-lefedettség | indokrekordok |
+| OBJ-02 | | lejárat nélküli vagy lejárt indokok a nyilatkozott rekordokban |
+| OBJ-03 | nemek szerinti értékelés-eloszlás, Mann–Whitney szűrés (nem igazolja a semlegességet) | kalibráció |
+| STA-01 | átlag, medián, változó díjazás két független úton; kereszt-ellenőrzés a Bérelemző eredményével | |
+| STA-02 | kategóriánkénti 5%-os küszöbérintés, a Welch-jelzés, a korrekciós ablak | indok és korrekciós terv (`deviation_register`) |
+| STA-03 | elnyomás, bizonytalansági mutató, az eredmény L1 állapota | |
+| TRN-01 | hirdetések bérsáv-aránya | a bértörténeti kérdés tilalma |
+| TRN-02 | a két hónapos válaszhatáridő a naplóból | az információkérési napló |
+| TRN-03, CHG-02 | frissesség | a közlés és a frissítési napló |
+| REP-01 | létszám szerinti jelentési sáv és határidő | naptár és felelős |
+| REP-02 | közös bérértékelést indokló kategóriák száma | eljárás és sablon |
+| DPR-01 | nem engedélyezett oszlopok a fejlécben | hozzáférési mátrix, cél, megőrzés |
+| DPR-02 | az elnyomott kategóriákban lévő munkavállalók aránya | kiegészítő megoldás |
+| CHG-01 | | munkakör-változás és újraértékelés naplója |
+
+Az aggregált mutatók: átlagos és medián bérkülönbség, a változó díjazás különbsége és aránya, a nők és férfiak száma a négy bérkvartilisben, kategóriánkénti átlag- és mediánrés. A nemenként 5 fő alatti cellák elnyomottak, az 1–4 közötti darabszámok „<5” alakban szerepelnek.
+
+### Feltevések és korlátok
+
+- A kvartilis-határ az `inclusive` módszerű kvantilis, a nő- és férfidomináns munkakör küszöbe 0,7, a pontsáv a Bérelemző szabálya. A kézikönyv ezeket nem rögzíti, ezért **feltevések**.
+- A jelentési ütemezés (REP-01) a tudásbázisból származik, `REVIEW_REQUIRED`; a magyar átültetés állapota nem ellenőrzött.
+- A `DECLARED_ONLY` kontrollokat a motor **nem tudja igazolni**. A küszöbérintés nem azonos a közös bérértékelési kötelezettséggel; az indoklás és az orvoslás emberi, jogi döntés.
+- A motort szintetikus adaton ellenőriztük; valós szervezeten még nem futott.
+- Az `ABOVE_THRESHOLD_REVIEW` bérrés-rekord csak bizonyítékhivatkozással érvényes; hivatkozás nélkül a `pay_equity_records_not_valid` listába kerül, hibaüzenettel.
+
 ## Licenc
 
 Minden jog fenntartva, lásd a [`LICENSE`](LICENSE) fájlt.
