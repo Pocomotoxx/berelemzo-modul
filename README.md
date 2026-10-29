@@ -71,6 +71,49 @@ Az eredmény tartalmazza a `method_id`, a `core_version`, a konfiguráció SHA-2
 
 Jelölés: `COMPUTED_MEASURED` a szintetikus tesztvilágra; valós szervezeten még nem futtatta senki. Jogi minősítés: `REVIEW_REQUIRED`.
 
+## Eredmény-ellenőrző (L1): `berelemzo_verify`
+
+Független, determinisztikus, MI-mentes ellenőrző a Bérelemző eredményfájljához. **Nem importálja a `berelemzo` csomagot**, és saját t-eloszlást használ, hogy a mag hibája ne másolódjon át az ellenőrzésbe. Csak a szabványos könyvtárat használja.
+
+```bash
+python -m berelemzo_verify --result eredmeny.json --config konfig.json --out l1.json
+```
+
+Kilépési kód: 0 (nincs FAIL), 1 (van FAIL), 2 (bemeneti hiba). A konfiguráció nélkül a V03 kihagyásra kerül.
+
+| ID | Ellenőrzés |
+|---|---|
+| V01 | séma és kulcs-fehérlista |
+| V02 | az eredmény SHA-256 lenyomatának újraszámolása |
+| V03 | a konfiguráció lenyomata és a paraméterek egyezése |
+| V04 | ismert módszer, verzió és státuszjelölések |
+| V05 | elnyomási invariáns (az elnyomott kategória nem tartalmaz számadatot) |
+| V06 | cellaminimum (közölt kategóriában nemenként legalább `min_cell` ≥ 5) |
+| V07 | küszöbérintés konzisztenciája (gap ≥ küszöb) |
+| V08 | Welch-jelzés konzisztenciája (t > kritikus érték) |
+| V09 | a kritikus t-érték független újraszámítása |
+| V10 | a mintavételi jelzés (küszöbérintés ∧ Welch) konzisztenciája |
+| V11 | az összegzés újraszámítása |
+| V12 | a kategóriánkénti és a szervezetszintű valószínűségek újraszámítása |
+| V13 | sávszerkezet |
+| V14 | konfiguráció-épség (súlyok, skálák, küszöbök) |
+| V15 | előjel-plauzibilitás (heurisztika, WARN) |
+| V16 | kizárt darabszámok védelme (kis szám csak „<k” alakban) |
+| V17 | számok épsége (nincs NaN, végtelen, ésszerűtlen érték) |
+| V18 | szabad szöveges mezők biztonsága (azonosító-, URL- és utasításszerű minták) |
+
+Minden megállapítás JSON-mutató lelőhelyet kap. A rekord kimondja a lefedettség korlátait: **a „nincs eltérés” nem azonos azzal, hogy „helyes”.** Az L1 nem vizsgálja a nyers adatot, a módszertan helyességét és a jogi megfelelést.
+
+### Az ellenőrző saját ellenőrzése
+
+A `berelemzo_verify.mutations` ismert jó eredmény 23 szándékosan elrontott változatát tartalmazza (hibás lenyomat, megszegett elnyomás, megfordított küszöb, hamis szabadságfok, beágyazott utasítás stb.). A benchmark az észlelési arányt és a téves riasztást méri:
+
+```bash
+python -m berelemzo_verify.benchmark --result tiszta_eredmeny.json --config konfig.json
+```
+
+Minden V01–V18 ellenőrzéshez van legalább egy mutáció, és a tesztek ezt kikényszerítik. A tiszta eredményen nem keletkezhet FAIL vagy WARN.
+
 ## Licenc
 
 Minden jog fenntartva, lásd a [`LICENSE`](LICENSE) fájlt.
