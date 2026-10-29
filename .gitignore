@@ -1,0 +1,10 @@
+__pycache__/
+*.pyc
+*.egg-info/
+build/
+dist/
+.venv/
+# valós bérfájl és eredmény soha nem kerülhet a repóba
+*.csv
+eredmeny*.json
+!berelemzo/examples/*.json

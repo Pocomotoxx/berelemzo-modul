@@ -1,0 +1,16 @@
+{
+  "scheme": {
+    "name": "EIGE-alap 40/35/15/10 (példa, a súlyok emberi döntések)",
+    "weights": [0.40, 0.35, 0.15, 0.10],
+    "level_max": 5
+  },
+  "band_width": 5.0,
+  "min_cell": 5,
+  "jobs": {
+    "MK-001": [2, 2, 1, 1],
+    "MK-002": [3, 2, 2, 1],
+    "MK-003": [3, 3, 2, 2],
+    "MK-004": [4, 3, 3, 2],
+    "MK-005": [5, 4, 4, 3]
+  }
+}

@@ -1,0 +1,15 @@
+[project]
+name = "berelemzo"
+version = "0.1.0"
+description = "Bérelemző: determinisztikus, MI-mentes bérrés-számítási mag"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { file = "LICENSE" }
+classifiers = ["License :: Other/Proprietary License"]
+dependencies = []
+
+[project.scripts]
+berelemzo = "berelemzo.cli:main"
+
+[tool.setuptools]
+packages = ["berelemzo"]

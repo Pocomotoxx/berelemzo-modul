@@ -1,0 +1,14 @@
+{
+  "scheme": {
+    "name": "EIGE 14 részfaktor, alapértelmezett súlyok (példa; a súlyok emberi döntések). Sorrend: S1–S5 készségek, R1–R4 felelősség, E1–E3 erőfeszítés, W1–W2 munkakörülmények",
+    "weights": [0.12, 0.08, 0.08, 0.06, 0.06, 0.12, 0.07, 0.08, 0.08, 0.05, 0.06, 0.04, 0.07, 0.03],
+    "level_max": [8, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5]
+  },
+  "band_width": 10.0,
+  "min_cell": 5,
+  "jobs": {
+    "MK-001": [2, 1, 1, 1, 2, 1, 2, 1, 0, 0, 0, 3, 3, 2],
+    "MK-002": [4, 3, 2, 2, 0, 1, 1, 2, 1, 2, 3, 0, 1, 1],
+    "MK-003": [6, 4, 4, 3, 0, 3, 2, 3, 3, 3, 2, 0, 1, 1]
+  }
+}
