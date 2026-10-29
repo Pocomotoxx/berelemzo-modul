@@ -1,6 +1,6 @@
 [project]
 name = "berelemzo"
-version = "0.1.0"
+version = "0.2.0"
 description = "Bérelemző: determinisztikus, MI-mentes bérrés-számítási mag"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -10,6 +10,7 @@ dependencies = []
 
 [project.scripts]
 berelemzo = "berelemzo.cli:main"
+berelemzo-verify = "berelemzo_verify.cli:main"
 
 [tool.setuptools]
-packages = ["berelemzo"]
+packages = ["berelemzo", "berelemzo_verify"]
