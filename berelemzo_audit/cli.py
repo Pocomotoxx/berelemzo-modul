@@ -25,6 +25,8 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--result", help="a Bérelemző eredményfájlja a kereszt-ellenőrzéshez (JSON)")
     p.add_argument("--input-reality", required=True, choices=("REAL", "SYNTHETIC", "MIXED"), help="a bemenet jellege")
     p.add_argument("--delimiter", default=",")
+    p.add_argument("--pay-basis", choices=("components", "total"), default="components",
+                   help="components: a komponensek a kifizetett összegek (alapértelmezés); total: az összes díjazás a kifizetett, a komponensek teljes munkaidősek")
     p.add_argument("--out", help="az audit-rekord helye (JSON); nélküle a standard kimenetre ír")
     p.add_argument("--overwrite", action="store_true")
     p.add_argument("--version", action="version", version=f"berelemzo_audit {__version__}")
@@ -38,7 +40,7 @@ def main(argv: list[str] | None = None) -> int:
         cfg = load_config(a.config)
         config_raw = json.loads(Path(a.config).read_text(encoding="utf-8"))
         decl = load_declarations(a.declarations)
-        ds = load_rows(a.data, a.delimiter)
+        ds = load_rows(a.data, a.delimiter, a.pay_basis)
         result = None
         if a.result:
             try:

@@ -28,7 +28,7 @@ IDENTIFIER_TOKENS = {"name", "nev", "név", "neve", "taj", "adoszam", "adószám
                      "e-mail", "telefon", "phone", "cim", "cím", "lakcim", "lakcím", "szuletesi", "születési",
                      "torzsszam", "törzsszám", "employee_id", "person_id"}
 
-CONFIG_KEYS = {"scheme", "band_width", "min_cell", "jobs"}
+CONFIG_KEYS = {"scheme", "band_width", "min_cell", "jobs", "grouping"}
 DECLARATION_KEYS = {"organisation", "governance", "job_catalogue", "job_evaluation", "pay_elements", "reconciliation",
                     "normalization", "pay_bands", "pay_policy", "scoring_log", "justifications",
                     "justifications_declared_complete", "deviation_register", "info_requests",
@@ -52,6 +52,7 @@ class Row:
     var_norm: float | None
     perf: int | None
     declared_norm: float | None = None
+    file_total: float | None = None      # a fájl összes díjazás oszlopa, ha a komponensek is megvannak (integráltsági ellenőrzés)
 
 
 @dataclass
@@ -62,6 +63,10 @@ class Dataset:
     excluded_other_sex: int = 0
     invalid_fte_rows: int = 0
     headcount_all: int = 0          # minden adatsor, a kizártakkal együtt
+    total_compared_rows: int = 0    # sor, ahol a komponensek és az összes oszlop is megvan
+    total_mismatch_rows: int = 0    # ebből az összes ≠ a komponensek összege
+    total_equals_components_times_fte: int = 0   # az eltérő sorok közül ahány: összes = komponensösszeg × fte (valamelyik oszlop már FTE-skálázott)
+    pay_basis: str = "components"
     sum_total_all: float = 0.0      # a tényleges havi bruttó összeg minden soron, a kizártakkal együtt
 
 
@@ -73,6 +78,7 @@ class Config:
     min_cell: int
     jobs: dict[str, tuple[float, ...]]
     scheme_name: str = ""
+    scoring: bool = True      # False: pontozás nélküli, munkakörönkénti (azonos munka) csoportosítás
 
 
 def _num(x) -> bool:
@@ -103,6 +109,13 @@ def load_config(path: str | Path) -> Config:
         raise IntakeError(f"A konfiguráció nem olvasható vagy nem érvényes JSON: {type(exc).__name__}") from None
     if not isinstance(raw, dict) or set(raw) - CONFIG_KEYS:
         raise IntakeError("A konfiguráció kulcsai: scheme, band_width, min_cell, jobs.")
+    if raw.get("grouping") is not None:
+        if raw["grouping"] != "job" or "scheme" in raw or "jobs" in raw:
+            raise IntakeError("A grouping értéke csak \"job\" lehet, és nem adható meg mellé scheme vagy jobs.")
+        mc = raw.get("min_cell", MIN_CELL_FLOOR)
+        if not isinstance(mc, int) or isinstance(mc, bool) or mc < MIN_CELL_FLOOR:
+            raise IntakeError(f"A min_cell egész szám legyen, legalább {MIN_CELL_FLOOR}.")
+        return Config((1.0,), (1.0,), 1.0, mc, {}, "munkakörönkénti csoportosítás (azonos munka), pontozás nélkül", scoring=False)
     scheme = raw.get("scheme")
     if not isinstance(scheme, dict) or "weights" not in scheme:
         raise IntakeError("A 'scheme.weights' kötelező.")
@@ -163,10 +176,14 @@ def _float(cell: str):
     return v
 
 
-def load_rows(path: str | Path, delimiter: str = ",") -> Dataset:
+def load_rows(path: str | Path, delimiter: str = ",", pay_basis: str = "components") -> Dataset:
+    """pay_basis: 'components' – a komponensek a ténylegesen kifizetett összegek, a fájl összege ezek összege (alapértelmezés, a bekérő szerint);
+    'total' – az összes díjazás oszlop a ténylegesen kifizetett összeg, a komponensek már teljes munkaidős (FTE-egyenértékes) összegek."""
+    if pay_basis not in ("components", "total"):
+        raise IntakeError("A pay_basis értéke components vagy total lehet.")
     if "://" in str(path):
         raise IntakeError("Csak helyi fájl olvasható be.")
-    ds = Dataset()
+    ds = Dataset(pay_basis=pay_basis)
     try:
         fh = open(path, encoding="utf-8-sig", newline="")
     except OSError as exc:
@@ -210,11 +227,22 @@ def load_rows(path: str | Path, delimiter: str = ",") -> Dataset:
             except ValueError:
                 raise IntakeError(f"A(z) {lineno}. sor valamelyik számmezője nem szám.") from None
             present = [v for v in comps.values() if v is not None]
-            total = sum(present) if present else total_cell
+            if pay_basis == "total":
+                total = total_cell
+                if total is None:
+                    raise IntakeError("A total díjazási alaphoz kell a kifizetett_osszes_kezi oszlop minden sorban.")
+            else:
+                total = sum(present) if present else total_cell
             if total is None or total <= 0 or any(v < 0 for v in present):
                 raise IntakeError(f"A(z) {lineno}. sor díjazása hiányzik, nem pozitív vagy negatív komponenst tartalmaz.")
             ds.headcount_all += 1
             ds.sum_total_all += total
+            if present and total_cell is not None:
+                ds.total_compared_rows += 1
+                if abs(sum(present) - total_cell) > max(1.0, 1e-6 * total_cell):
+                    ds.total_mismatch_rows += 1
+                    if fte is not None and abs(sum(present) * fte - total_cell) <= max(1.0, 1e-6 * total_cell):
+                        ds.total_equals_components_times_fte += 1
             sx = row[col["sex"]].strip().casefold()
             if sx in _F:
                 female = True
@@ -229,8 +257,8 @@ def load_rows(path: str | Path, delimiter: str = ",") -> Dataset:
             norm = total / fte
             ds.rows.append(Row(
                 idx=seq, job=row[col["job_id"]].strip(), female=female, fte=fte, total=total, norm=norm,
-                base_norm=(comps["alapber"] / fte if comps.get("alapber") is not None else None),
-                var_norm=((comps.get("valtozo_bonusz") or 0.0) / fte if "valtozo_bonusz" in col else None),
+                base_norm=(comps["alapber"] / (1.0 if pay_basis == "total" else fte) if comps.get("alapber") is not None else None),
+                var_norm=((comps.get("valtozo_bonusz") or 0.0) / (1.0 if pay_basis == "total" else fte) if "valtozo_bonusz" in col else None),
                 perf=(int(perf_cell) if perf_cell is not None and float(perf_cell).is_integer() else None),
-                declared_norm=declared_norm))
+                declared_norm=declared_norm, file_total=(total_cell if present else None)))
     return ds

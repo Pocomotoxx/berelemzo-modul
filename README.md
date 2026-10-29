@@ -129,8 +129,9 @@ Az adatfájlt **helyben** kell futtatni. A kimenet csak aggregátum; ha a kimene
 | Bemenet | Tartalom |
 |---|---|
 | `--data` | CSV, fehérlistás oszlopok: `job_id`, `sex`, `fte`, `alapber`, `rendszeres_potlek`, `valtozo_bonusz`, `termeszetbeni`, `tulora`, `kifizetett_osszes_kezi`, `szerzodes_tipus`, `belepes_eve`, `munkahely`, `muszakrend`, `iskolai_vegzettseg`, `teljesitmenysav`, `eletkor_sav`. A fehérlistán kívüli oszlop **értékét a beolvasó nem olvassa ki**, csak a nevét jelzi (DPR-01). Az `fte` kötelező, a normalizálás pontosan egyszer, a motorban történik. |
-| `--config` | A Bérelemző konfigurációja (súlyok, szintek, sávszélesség). |
+| `--config` | A Bérelemző konfigurációja (súlyok, szintek, sávszélesség). Pontozás nélkül `{"grouping": "job", "min_cell": 5}`: minden munkakör külön csoport (azonos munka). Ekkor a JOB-01–03 kontroll `NOT_ASSESSABLE`, és a kategóriák nem egyenlő értékű munkát jelentenek. |
 | `--declarations` | A szervezet nyilatkozatai (JSON, minden kulcs opcionális): `organisation`, `governance`, `job_catalogue`, `job_evaluation`, `pay_elements`, `reconciliation`, `normalization`, `pay_bands`, `pay_policy`, `scoring_log`, `justifications`, `deviation_register`, `info_requests`, `transparency`, `reporting`, `joint_assessment`, `data_protection`, `change_management`. A `justifications[].row` az adatsor sorszáma a fájlban (a fejléc után, 1-től). |
+| `--pay-basis` | `components` (alapértelmezés): a komponensek a kifizetett összegek, a fájl összege ezek összege. `total`: az összes díjazás oszlop a kifizetett összeg, a komponensek teljes munkaidős összegek. Ha az összes díjazás a részmunkaidősöknél pontosan komponensösszeg × fte, a motor jelzi (PAY-01, PAY-02), mert a normalizálás kétszeres lehet; ilyenkor mindkét alappal érdemes futtatni. |
 | `--result` | A Bérelemző eredményfájlja: a motor kereszt-ellenőrzi egy független újraszámítással, és lefuttatja rajta az L1 ellenőrzőt. |
 
 ### Státuszok és bizonyítékszint
@@ -180,6 +181,7 @@ Az aggregált mutatók: átlagos és medián bérkülönbség, a változó díja
 - A jelentési ütemezés (REP-01) a tudásbázisból származik, `REVIEW_REQUIRED`; a magyar átültetés állapota nem ellenőrzött.
 - A `DECLARED_ONLY` kontrollokat a motor **nem tudja igazolni**. A küszöbérintés nem azonos a közös bérértékelési kötelezettséggel; az indoklás és az orvoslás emberi, jogi döntés.
 - A motort szintetikus adaton ellenőriztük; valós szervezeten még nem futott.
+- Ha egyetlen kategória sem éri el a cellaminimumot, a STA-02 `NOT_ASSESSABLE` (nem `MET`): üres halmazra nem állítható teljesülés. A változó díjazás mutatói elnyomottak, ha valamelyik nem 1–4 fős kedvezményezett-csoportot jelent.
 - Az `ABOVE_THRESHOLD_REVIEW` bérrés-rekord csak bizonyítékhivatkozással érvényes; hivatkozás nélkül a `pay_equity_records_not_valid` listába kerül, hibaüzenettel.
 
 ## Licenc

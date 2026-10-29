@@ -122,6 +122,10 @@ def variable_pay(rows: list[Row], k: int) -> dict | None:
     f_rec = [r for r in f_all if (r.var_norm or 0) > 0]
     m_rec = [r for r in m_all if (r.var_norm or 0) > 0]
     out = {"recipients_f": floor_count(len(f_rec), k), "recipients_m": floor_count(len(m_rec), k)}
+    if 0 < len(f_rec) < k or 0 < len(m_rec) < k:
+        # az arány és a különbség egy 1–(k−1) fős csoport pontos létszámát vagy összegét fedné fel
+        out["suppressed"] = True
+        return out
     if len(f_all) >= k and len(m_all) >= k:
         out["share_receiving_f"] = round(len(f_rec) / len(f_all), 6)
         out["share_receiving_m"] = round(len(m_rec) / len(m_all), 6)
@@ -164,9 +168,16 @@ def _welch(f_vals: list[float], m_vals: list[float]):
     return t, df, upper_quantile(ALPHA, df), se
 
 
+def grade_map(rows: list[Row], cfg: Config) -> dict[str, int]:
+    """Munkakör → kategória. Pontozott konfigurációnál a pontsáv, pontozás nélkül minden munkakör külön csoport (azonos munka)."""
+    if cfg.scoring:
+        return {j: grade_of(job_score(lv, cfg.weights, cfg.level_max), cfg.band_width) for j, lv in cfg.jobs.items()}
+    return {j: i + 1 for i, j in enumerate(sorted({r.job for r in rows}))}
+
+
 def category_table(rows: list[Row], cfg: Config) -> list[dict]:
     """Kategóriánkénti mutatók. A nyers `grade` kulccsal; a kis cellák elnyomva."""
-    grade_of_job = {j: grade_of(job_score(lv, cfg.weights, cfg.level_max), cfg.band_width) for j, lv in cfg.jobs.items()}
+    grade_of_job = grade_map(rows, cfg)
     by: dict[int, list[Row]] = {}
     for r in rows:
         if r.job in grade_of_job:
@@ -176,7 +187,7 @@ def category_table(rows: list[Row], cfg: Config) -> list[dict]:
         members = by[g]
         f = [r.norm for r in members if r.female]
         m = [r.norm for r in members if not r.female]
-        rng = [round((g - 1) * cfg.band_width, 6), round(g * cfg.band_width, 6)]
+        rng = [round((g - 1) * cfg.band_width, 6), round(g * cfg.band_width, 6)] if cfg.scoring else None
         if len(f) < cfg.min_cell or len(m) < cfg.min_cell:
             out.append({"grade": g, "score_range": rng, "suppressed": True})
             continue

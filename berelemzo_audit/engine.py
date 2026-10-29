@@ -66,7 +66,7 @@ def _pay_equity_records(ctx: Ctx, ind: dict) -> tuple[list[dict], list[dict]]:
         if c["suppressed"]:
             continue
         st = states.get(c["grade"], {})
-        add(build_pay_equity_record(group=f"kategória {c['grade']} (pontsáv {c['score_range'][0]}–{c['score_range'][1]})", pay_element="TOTAL", metric="MEAN",
+        add(build_pay_equity_record(group=(f"kategória {c['grade']} (pontsáv {c['score_range'][0]}–{c['score_range'][1]})" if c["score_range"] else f"munkakör-csoport {c['grade']} (azonos munka)"), pay_element="TOTAL", metric="MEAN",
                                     gap_percent=round(c["mean_gap"] * 100, 4), counts=[{"group": "F", "count": c["n_f"]}, {"group": "M", "count": c["n_m"]}],
                                     min_cell=k, adjusted=False, justification_refs=st.get("justification_refs", []), input_reality=reality,
                                     method="(férfi átlag − női átlag) / férfi átlag a kategórián belül, FTE-normalizált díjazás", evidence_ref=ev,
@@ -101,7 +101,7 @@ def run_audit(ds: Dataset, cfg: Config, decl: dict, audit_date: dt.date, *, resu
         "audit_type": AUDIT_ID, "audit_version": __version__, "audit_date": audit_date.isoformat(), "input_reality": input_reality,
         "legal_status": "REVIEW_REQUIRED",
         "scope": {"catalogue": "bértranszparencia-auditkézikönyv kontrollkatalógusa (24 kontroll)", "workers_in_file": ds.headcount_all,
-                  "workers_analysed": len(ds.rows), "min_cell": cfg.min_cell},
+                  "workers_analysed": len(ds.rows), "min_cell": cfg.min_cell, "pay_basis": ds.pay_basis, "grouping": "pontsáv" if cfg.scoring else "munkakör (azonos munka)"},
         "summary": {"controls": len(controls), "by_status": counts,
                     "assessed_from_data": sum(1 for c in controls if c["status"] in (MET, NOT_MET) and c["evidence_level"] == "COMPUTED_MEASURED"),
                     "declared_only_or_declared_failures": sum(1 for c in controls if c["evidence_level"] == "DECLARED"),

@@ -20,7 +20,7 @@ from dataclasses import dataclass, field
 
 from .catalogue import (ANNUAL_DAYS, BY_ID, CORRECTION_MONTHS, EXPIRY_REQUIRED_TYPES, INFO_REQUEST_MONTHS,
                         REPORTING_SCHEDULE, REPORTING_SOURCE, TRIGGER_GAP)
-from .indicators import (floor_count, grade_of, job_female_share, job_score, mean_gap_fast, mean_gap_naive,
+from .indicators import (floor_count, grade_map, job_female_share, mean_gap_fast, mean_gap_naive,
                          median_gap_fast, median_gap_naive)
 from .inputs import Config, Dataset, add_months, parse_date, IntakeError
 
@@ -119,9 +119,12 @@ def gov_02(ctx: Ctx) -> Outcome:
 
 
 # ================================================================ JOB
+NO_SCORING = ["pontozási konfiguráció (scheme és jobs): a futás pontozás nélküli, munkakörönkénti csoportosítással történt"]
+
+
 def job_01(ctx: Ctx) -> Outcome:
     data_jobs = {r.job for r in ctx.ds.rows}
-    no_score = {j for j in data_jobs if j not in ctx.cfg.jobs}
+    no_score = {j for j in data_jobs if j not in ctx.cfg.jobs} if ctx.cfg.scoring else set()
     affected = sum(1 for r in ctx.ds.rows if r.job in no_score)
     cat = ctx.d("job_catalogue")
     metrics = {"jobs_in_data": len(data_jobs), "jobs_without_scoring_levels": len(no_score),
@@ -134,7 +137,8 @@ def job_01(ctx: Ctx) -> Outcome:
         if findings:
             return Outcome(NOT_MET, None, "Az adatban szereplő munkakörök egy része nincs pontozva.", metrics, findings)
         return Outcome(NOT_ASSESSABLE, "UNVERIFIABLE", "A munkakörprofil-nyilvántartás (job_catalogue) nincs megadva.", metrics,
-                       needs=["job_catalogue"], limitations=["A pontozottság egyezik, a profilok verziózottsága nem ellenőrizhető."])
+                       needs=["job_catalogue"] + ([] if ctx.cfg.scoring else NO_SCORING),
+                       limitations=["A profilok verziózottsága nem ellenőrizhető."] + ([] if ctx.cfg.scoring else ["A pontozottság nem vizsgálható."]))
     bad_profile = {j for j in data_jobs if not isinstance(cat.get(j), dict) or not cat[j].get("profile_version") or not cat[j].get("profile_ref")}
     inactive = {j for j in data_jobs if isinstance(cat.get(j), dict) and cat[j].get("active") is False}
     metrics.update({"jobs_without_versioned_profile": len(bad_profile), "inactive_jobs_with_workers": len(inactive)})
@@ -161,6 +165,8 @@ def _main_map(ctx: Ctx):
 
 
 def job_02(ctx: Ctx) -> Outcome:
+    if not ctx.cfg.scoring:
+        return _need("JOB-02", NO_SCORING)
     fmap = _main_map(ctx)
     if fmap is None:
         return _need("JOB-02", ["job_evaluation.factor_map (a súlyok főfaktor-hozzárendelése)"],
@@ -213,6 +219,8 @@ def job_02(ctx: Ctx) -> Outcome:
 
 
 def job_03(ctx: Ctx) -> Outcome:
+    if not ctx.cfg.scoring:
+        return _need("JOB-03", NO_SCORING)
     log = ctx.d("scoring_log")
     if not isinstance(log, dict) or not isinstance(log.get("raters"), dict):
         return _need("JOB-03", ["scoring_log.raters (munkakörönként az értékelők szintlistái)"])
@@ -267,9 +275,21 @@ def pay_01(ctx: Ctx) -> Outcome:
     ds = ctx.ds
     declared_elems = ctx.d("pay_elements")
     rec = ctx.d("reconciliation")
-    if declared_elems is None and not isinstance(rec, dict):
-        return _need("PAY-01", ["pay_elements", "reconciliation.{headcount,gross_total}"])
     findings, metrics = [], {}
+    if ds.total_compared_rows:
+        metrics["rows_total_vs_components_compared"] = ds.total_compared_rows
+        metrics["rows_total_differs_from_component_sum"] = floor_count(ds.total_mismatch_rows, ctx.k)
+        if ds.total_mismatch_rows:
+            findings.append(_finding("PAY-01", "adatfájl, összes díjazás oszlop × komponensek",
+                                     f"{floor_count(ds.total_mismatch_rows, ctx.k)} sorban az összes díjazás nem egyezik a komponensek összegével"
+                                     + (" (mindegyikben: összes = komponensösszeg × fte, vagyis valamelyik oszlop már FTE-skálázott)"
+                                        if ds.total_equals_components_times_fte == ds.total_mismatch_rows else ""),
+                                     "Az összes díjazás és a komponensek egyeztetése (minden elem integrálása az összegbe)."))
+    if declared_elems is None and not isinstance(rec, dict):
+        if findings:
+            return Outcome(NOT_MET, None, "A díjazás elemei nincsenek az összes díjazásba integrálva.", metrics, findings)
+        return Outcome(NOT_ASSESSABLE, "UNVERIFIABLE", "A deklarációk (pay_elements, reconciliation) hiányoznak; a fájlon belüli összeg–komponens egyezés"
+                       + (" rendben van." if metrics else " nem vizsgálható."), metrics, needs=["pay_elements", "reconciliation.{headcount,gross_total}"])
     if isinstance(declared_elems, list):
         missing = [e for e in declared_elems if e not in ds.columns]
         metrics["declared_elements"] = len(declared_elems)
@@ -311,6 +331,12 @@ def pay_02(ctx: Ctx) -> Outcome:
     metrics = {"rows_with_invalid_fte": floor_count(ds.invalid_fte_rows, ctx.k), "part_time_workers": floor_count(part_time, ctx.k),
                "declared_normalized_compared": compared, "declared_normalized_mismatch": floor_count(mism, ctx.k),
                "double_normalization_pattern": floor_count(double, ctx.k)}
+    metrics["pay_basis"] = ds.pay_basis
+    metrics["rows_total_equals_components_times_fte"] = floor_count(ds.total_equals_components_times_fte, ctx.k)
+    if ds.pay_basis == "components" and ds.total_equals_components_times_fte:
+        findings.append(_finding("PAY-02", "adatfájl, összes díjazás × komponensek × fte",
+                                 "az összes díjazás és a komponensek összege között FTE-szorzós összefüggés van: a komponensek vagy az összeg már FTE-skálázott, így a normalizálás kétszeres lehet",
+                                 "A díjazási alap tisztázása (a komponensek teljes munkaidős vagy tényleges összegek-e), majd az újraszámítás."))
     if ds.invalid_fte_rows:
         findings.append(_finding("PAY-02", "adatfájl, fte oszlop", "a munkaidő-szorzó 0 vagy 1 feletti / érvénytelen sorok vannak", "Érvényes munkaidő-szorzók (0 < fte ≤ 1)."))
     if mism:
@@ -570,6 +596,10 @@ def sta_02(ctx: Ctx) -> Outcome:
     metrics = {"categories_reported": sum(1 for s in states if s["state"] != "SUPPRESSED"), "categories_suppressed": sum(1 for s in states if s["state"] == "SUPPRESSED"),
                "categories_at_or_above_5_percent": len(trig), "addressed_by_justification_or_remediation": len(trig) - len(unaddressed),
                "joint_assessment_indicated": len(unaddressed), "remediation_overdue": len(overdue)}
+    if metrics["categories_reported"] == 0:
+        return Outcome(NOT_ASSESSABLE, "UNVERIFIABLE", "Egyetlen kategória sem érte el a cellaminimumot, a kategórián belüli rés nem vizsgálható.", metrics,
+                       needs=["nagyobb létszám vagy összevonható, pontozott kategóriák (a pontozási konfiguráció)"],
+                       limitations=["Az elnyomás védi az egyéneket, de a kategórián belüli 5%-os küszöb ebből az adatból nem értékelhető."])
     if not trig:
         return Outcome(MET, "COMPUTED_MEASURED", "Egyik közölt kategóriában sincs 5% vagy annál nagyobb átlagos bérkülönbség.", metrics,
                        limitations=["Az elnyomott kategóriák állapota nem ismert.", "A küszöbérintés nem jogi minősítés."])
@@ -720,7 +750,7 @@ def dpr_01(ctx: Ctx) -> Outcome:
 
 def dpr_02(ctx: Ctx) -> Outcome:
     cats = ctx.indicators["categories"]
-    grade_of_job = {j: grade_of(job_score(lv, ctx.cfg.weights, ctx.cfg.level_max), ctx.cfg.band_width) for j, lv in ctx.cfg.jobs.items()}
+    grade_of_job = grade_map(ctx.ds.rows, ctx.cfg)
     sup_grades = {c["grade"] for c in cats if c["suppressed"]}
     in_scope = [r for r in ctx.ds.rows if r.job in grade_of_job]
     in_sup = sum(1 for r in in_scope if grade_of_job[r.job] in sup_grades)
