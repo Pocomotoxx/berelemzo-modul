@@ -11,6 +11,7 @@ dependencies = []
 [project.scripts]
 berelemzo = "berelemzo.cli:main"
 berelemzo-verify = "berelemzo_verify.cli:main"
+berelemzo-audit = "berelemzo_audit.cli:main"
 
 [tool.setuptools]
-packages = ["berelemzo", "berelemzo_verify"]
+packages = ["berelemzo", "berelemzo_verify", "berelemzo_audit"]
